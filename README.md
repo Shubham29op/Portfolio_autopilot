@@ -116,9 +116,9 @@ What happens:
 - **Hard filters**: debt/equity above 1.5, interest cover below 3, pledge above 10%, cash conversion
   below 0.5, falling profits, losses. Banks and NBFCs skip the leverage and cash-flow tests.
   Missing data never fails a filter.
-- **Scores (0-100)**: growth, quality, balance sheet, valuation (vs its own history and industry)
-  and ownership, ranked within the Nifty 100. Blended 75/25 with a **sector score** (the sector's
-  growth plus its 6-month price momentum).
+- **Scores (0-100)**: growth, quality, balance sheet, valuation (vs its own history and industry),
+  ownership and **forecast** (below), ranked within the Nifty 100. Blended 75/25 with a **sector
+  score** (the sector's growth plus its 6-month price momentum).
 - **Deep dive** on the top 30 plus anything you hold: Claude web-searches the latest results,
   concall and investor-presentation commentary, 90 days of news and sector conditions. It returns
   a verdict, conviction, thesis, risks, concrete red flags, the next results date and sources.
@@ -127,6 +127,29 @@ What happens:
   Set `research.on_llm_failure: reject` to fail closed instead.
 - **Holdings review**: a held stock with red flags is exited; one dropped from the list gets its
   stop tightened to 1 ATR (or is exited, via `research.dropped_from_list`).
+
+### Forecast pillar (top-down, statement lines only)
+
+The other pillars look backward. The forecast pillar (`research/forecast.py`, weight 0.15) is the
+sell-side "top-down" method with no analyst: revenue first, then everything else as a share of it.
+
+- Revenue grows at the **median** of its past yearly growth, clipped to -20%..+40% a year.
+- EBITDA margin, depreciation, interest, tax rate, capex and working-capital change are each the
+  **median** share of revenue over the available years (medians, so one odd year doesn't set the
+  forecast). That gives next-year EBITDA, profit and free cash flow, and a 3-year profit CAGR.
+- Fair value = next-year EBITDA x the stock's **own** median EV/EBITDA (year-end prices), less net
+  debt. "Upside" is fair value vs today's price.
+- Banks and NBFCs: book value grows at ROE x retained share of profit (0..30%), valued at the
+  stock's own median price/book.
+- Scored: next-year profit growth (40%), upside (40%), free-cash-flow yield (20%, not for lenders).
+
+Honest limits: free feeds have no operating drivers (rooms, stores, subscribers), so step 1 of the
+method is approximated by the revenue trend; Yahoo holds only five annual statements, so
+confidence is shown per stock and anything outside sane bounds is dropped, not guessed. A Screener
+export carries no statements, so with that source the pillar is neutral. Each month's raw
+statements are saved under `data/fundamentals/statements/<month>/` so a point-in-time history
+builds up; once there are a few quarters of it, the forecast can be tried as a model feature and
+in backtests. Set `pillar_weights.forecast: 0` to switch the pillar off.
 
 ## Daily decision (stages 2 and 3)
 
@@ -207,7 +230,8 @@ autopilot/
   live.py            paper trading loop
   llm.py             Gemini (Search grounding) / Claude providers
   news/              sources.py (NSE filings, Google News), classify.py, guard.py (actions)
-  research/          yf_fundamentals.py (free, automatic), importer.py (optional Screener file), scoring.py (filters, pillars, sector),
+  research/          yf_fundamentals.py (free, automatic), forecast.py (top-down forecast pillar),
+                     importer.py (optional Screener file), scoring.py (filters, pillars, sector),
                      deep_dive.py (Claude + web search), monthly.py (approved list)
   ledger.py          SQLite: fills, orders, equity, events ("why"), signals, research, state
   api.py             FastAPI for the dashboard

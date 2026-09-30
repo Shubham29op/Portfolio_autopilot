@@ -7,8 +7,10 @@ those stay NaN and the ownership pillar goes neutral. The LLM deep dive still lo
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -90,8 +92,10 @@ def _price_on(prices: pd.Series | None, d: pd.Timestamp) -> float:
 
 
 def compute_metrics(inc: pd.DataFrame | None, qinc: pd.DataFrame | None, bs: pd.DataFrame | None,
-                    cf: pd.DataFrame | None, info: dict, prices: pd.Series | None) -> dict:
-    """Pure function: statements (rows x dates, as yfinance returns) -> canonical metrics."""
+                    cf: pd.DataFrame | None, info: dict, prices: pd.Series | None,
+                    is_financial: bool = False, forecast_cfg: dict | None = None) -> dict:
+    """Pure function: statements (rows x dates, as yfinance returns) -> canonical metrics,
+    plus the top-down forecast (fc_*) from research/forecast.py."""
     rev, ni = _row(inc, "revenue"), _row(inc, "net_income")
     opi, ebit = _row(inc, "op_income"), _row(inc, "ebit")
     interest, eps = _row(inc, "interest"), _row(inc, "eps")
@@ -156,6 +160,8 @@ def compute_metrics(inc: pd.DataFrame | None, qinc: pd.DataFrame | None, bs: pd.
         v = m.get(k)
         if v is not None and v == v and not (lo <= v <= hi_):
             m[k] = np.nan
+    from autopilot.research.forecast import forecast_company
+    m.update(forecast_company(inc, bs, cf, info, prices, is_financial, forecast_cfg))
     return m
 
 
@@ -171,32 +177,61 @@ def finalize(df: pd.DataFrame, universe) -> pd.DataFrame:
     return df
 
 
-class YFinanceFundamentals:
-    def __init__(self, pause_s: float = 0.5, retries: int = 2):
-        self.pause_s, self.retries = pause_s, retries
+def save_statements(path: Path, inc, qinc, bs, cf, info: dict) -> None:
+    """Raw statements as fetched, so a point-in-time fundamentals history builds up month by month
+    (a future ML feature needs it; yfinance itself only ever shows the latest 5 years)."""
+    def enc(df):
+        return None if df is None or getattr(df, "empty", True) else \
+            json.loads(df.to_json(orient="split", date_format="iso"))
+    keep = ("currentPrice", "marketCap", "sharesOutstanding", "enterpriseToEbitda", "trailingPE",
+            "totalDebt", "totalCash", "bookValue")
+    path.write_text(json.dumps({"fetched": datetime.now().isoformat(timespec="seconds"),
+                                "income": enc(inc), "quarterly_income": enc(qinc), "balance": enc(bs),
+                                "cashflow": enc(cf), "info": {k: info.get(k) for k in keep}}))
 
-    def fetch_one(self, symbol: str, prices: pd.Series | None) -> dict | None:
+
+class YFinanceFundamentals:
+    def __init__(self, pause_s: float = 0.5, retries: int = 2, cfg: dict | None = None):
+        self.pause_s, self.retries = pause_s, retries
+        r = (cfg or {}).get("research", {})
+        self.financial_sectors = set(r.get("financial_sectors", []))
+        self.forecast_cfg = r.get("forecast", {})
+        self.statements_dir = r.get("forecast", {}).get("statements_dir")
+
+    def fetch_one(self, symbol: str, prices: pd.Series | None, is_financial: bool = False,
+                  save_to: Path | None = None) -> dict | None:
         import yfinance as yf
 
         for attempt in range(self.retries + 1):
             try:
                 t = yf.Ticker(f"{symbol}.NS")
                 info = t.info or {}
-                m = compute_metrics(t.income_stmt, t.quarterly_income_stmt, t.balance_sheet,
-                                    t.cashflow, info, prices)
-                return m
+                stmts = (t.income_stmt, t.quarterly_income_stmt, t.balance_sheet, t.cashflow)
+                m = compute_metrics(*stmts, info, prices, is_financial, self.forecast_cfg)
             except Exception as exc:
                 log.warning("fundamentals %s attempt %d failed: %s", symbol, attempt + 1, exc)
                 time.sleep(2 * (attempt + 1))
+                continue
+            if save_to is not None:
+                try:
+                    save_statements(save_to / f"{symbol}.json", *stmts, info)
+                except Exception as exc:                      # history is a bonus; never fail the fetch
+                    log.warning("could not save statements for %s: %s", symbol, exc)
+            return m
         return None
 
     def snapshot(self, universe, month: str, snapshot_dir: Path,
                  bars: dict[str, pd.DataFrame] | None = None) -> tuple[pd.DataFrame, dict]:
         stocks = [s for s, i in universe.by_symbol.items() if i.type == "stock"]
         rows, failed = {}, []
+        save_to = None
+        if self.statements_dir:
+            from autopilot.config import resolve
+            save_to = resolve(self.statements_dir) / month     # raw statements: point-in-time history
+            save_to.mkdir(parents=True, exist_ok=True)
         for i, sym in enumerate(stocks, 1):
             prices = bars[sym]["close"] if bars and sym in bars else None
-            m = self.fetch_one(sym, prices)
+            m = self.fetch_one(sym, prices, universe[sym].sector in self.financial_sectors, save_to)
             if m is None:
                 failed.append(sym)
             else:
@@ -209,7 +244,7 @@ class YFinanceFundamentals:
         snapshot_dir.mkdir(parents=True, exist_ok=True)
         if not df.empty:
             df.to_csv(snapshot_dir / f"{month}.csv")
-        metrics = [k for k in BOUNDS] + ["cfo_last_year", "pat_last_year"]
+        metrics = [k for k in BOUNDS] + ["cfo_last_year", "pat_last_year", "fc_eps_growth_1y", "fc_upside"]
         coverage = {k: round(float(df[k].notna().mean()), 2) for k in metrics if k in df} if not df.empty else {}
         summary = {"rows": len(df), "unmatched_names": [], "missing_from_export": failed,
                    "source": "yfinance", "coverage": coverage}

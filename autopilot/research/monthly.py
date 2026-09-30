@@ -12,7 +12,8 @@ import pandas as pd
 from autopilot.config import resolve
 from autopilot.research.deep_dive import DeepResearcher
 from autopilot.research.importer import import_snapshot
-from autopilot.research.scoring import score_snapshot, sector_momentum_from_features
+from autopilot.research.forecast import OUTPUTS as FORECAST_COLS
+from autopilot.research.scoring import PILLAR_NAMES, score_snapshot, sector_momentum_from_features
 
 log = logging.getLogger(__name__)
 VIEW_ADJ = {"tailwind": 5.0, "neutral": 0.0, "headwind": -5.0}
@@ -37,7 +38,7 @@ def load_snapshot(cfg: dict, universe, month: str, files: list[Path] | None = No
     if source == "screener":
         raise FileNotFoundError(f"No Screener export found in {resolve(r['inbox'])}")
     from autopilot.research.yf_fundamentals import YFinanceFundamentals
-    fetcher = fetcher or YFinanceFundamentals(**r.get("yfinance", {}))
+    fetcher = fetcher or YFinanceFundamentals(cfg=cfg, **r.get("yfinance", {}))
     snap, summary = fetcher.snapshot(universe, month, resolve(r["snapshots"]), bars)
     if snap.empty:
         raise RuntimeError("yfinance returned no fundamentals (network or Yahoo issue)")
@@ -118,7 +119,7 @@ def run_monthly_research(cfg: dict, universe, ledger, month: str | None = None,
                              "thesis": (v or {}).get("thesis", ""), "sector": row["sector"]}
         rows.append((month, sym, row["sector"], int(ok), fscore, row["quant_score"], row["company_score"],
                      row["sector_score"],
-                     json.dumps({p: row[p] for p in ["growth", "quality", "balance_sheet", "valuation", "ownership"]}),
+                     json.dumps({p: row[p] for p in PILLAR_NAMES}),
                      json.dumps(row["filters_failed"]), row["data_coverage"],
                      (v or {}).get("verdict"), (v or {}).get("conviction"), (v or {}).get("sector_view"),
                      (v or {}).get("thesis"), json.dumps((v or {}).get("key_risks", [])),
@@ -130,8 +131,12 @@ def run_monthly_research(cfg: dict, universe, ledger, month: str | None = None,
     ledger.db.execute("DELETE FROM research WHERE month=?", (month,))
     ledger.db.executemany("INSERT INTO research VALUES (" + ",".join("?" * 20) + ")", rows)
     sector_scores = scores.groupby("sector")["sector_score"].first().to_dict()
+    fc_cols = [c for c in FORECAST_COLS if c in snap]
+    forecast = {s: {c: (None if pd.isna(v) else (round(v, 1) if isinstance(v, float) else v))
+                    for c, v in snap.loc[s, fc_cols].items()}
+                for s in snap.index if fc_cols and snap.at[s, "fc_confidence"] > 0}
     current = {"month": month, "version": datetime.now().isoformat(timespec="seconds"), "mode": mode,
-               "approved": approved, "red_flags": red_flag_syms,
+               "approved": approved, "red_flags": red_flag_syms, "forecast": forecast,
                "sector_scores": {k: round(min(100, max(0, v + sector_adj.get(k, 0))), 1)
                                  for k, v in sector_scores.items()},
                "source": import_summary.get("source"),

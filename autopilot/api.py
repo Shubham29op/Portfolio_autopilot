@@ -100,7 +100,7 @@ def research(source: str = "paper"):
             r[k] = json.loads(r[k]) if r[k] else None
     return {"month": cur["month"], "mode": cur["mode"], "source": cur.get("source"),
             "coverage": (cur.get("import") or {}).get("coverage"),
-            "sector_scores": cur["sector_scores"], "rows": rows}
+            "sector_scores": cur["sector_scores"], "forecast": cur.get("forecast") or {}, "rows": rows}
 
 
 @app.get("/api/equity")

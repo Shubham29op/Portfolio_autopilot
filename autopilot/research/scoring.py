@@ -14,9 +14,14 @@ PILLARS = {
     "valuation": [("pe_vs_hist", False, 0.4), ("pe_vs_industry", False, 0.4), ("ev_ebitda", False, 0.2)],
     "ownership": [("promoter_change", True, 0.3), ("fii_change", True, 0.25),
                   ("dii_change", True, 0.25), ("pledged_pct", False, 0.2)],
+    # top-down forecast (research/forecast.py): next-year profit growth, upside to fair value,
+    # free-cash-flow yield. Absent (Screener source, too little history) -> neutral 50.
+    "forecast": [("fc_eps_growth_1y", True, 0.4), ("fc_upside", True, 0.4), ("fc_fcf_yield", True, 0.2)],
 }
+PILLAR_NAMES = list(PILLARS)
 # metrics that are meaningless for banks / NBFCs / insurers
-NOT_FOR_FINANCIALS = {"roce", "debt_to_equity", "interest_coverage", "cfo_to_pat", "ev_ebitda", "opm_change"}
+NOT_FOR_FINANCIALS = {"roce", "debt_to_equity", "interest_coverage", "cfo_to_pat", "ev_ebitda", "opm_change",
+                      "fc_fcf_yield"}
 
 
 def _pct_rank(s: pd.Series, higher: bool) -> pd.Series:
@@ -86,7 +91,7 @@ def score_snapshot(df: pd.DataFrame, cfg: dict, sector_momentum: pd.Series | Non
     out["quant_score"] = ((1 - sw) * out["company_score"] + sw * out["sector_score"]).round(1)
     out["filters_failed"] = [hard_filter(df.loc[s], cfg, bool(fin.loc[s])) for s in df.index]
     out["passes_filters"] = out["filters_failed"].map(len) == 0
-    for c in ["growth", "quality", "balance_sheet", "valuation", "ownership", "company_score", "sector_score"]:
+    for c in PILLAR_NAMES + ["company_score", "sector_score"]:
         out[c] = out[c].round(1)
     return out.sort_values("quant_score", ascending=False)
 
