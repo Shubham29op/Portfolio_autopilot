@@ -20,7 +20,7 @@ def trading_days_between(a: str, b: str) -> int:
 
 
 def exit_decisions(positions: dict, feats: pd.DataFrame, probs: pd.Series, date: str,
-                   cfg: dict) -> list[dict]:
+                   cfg: dict, xs_score: pd.Series | None = None) -> list[dict]:
     """Discretionary exits (time stop, max hold, model exit). Stops live in GTTs."""
     s = cfg["strategy"]
     out = []
@@ -38,8 +38,12 @@ def exit_decisions(positions: dict, feats: pd.DataFrame, probs: pd.Series, date:
             out.append(dict(symbol=sym, reason="time_stop",
                             why=f"No progress after {held} days (+{gain_atr:.1f} ATR); capital is better used elsewhere."))
         elif not np.isnan(p) and p < s["p_exit"]:
+            xs = float(xs_score.get(sym, np.nan)) if xs_score is not None else np.nan
+            if not np.isnan(xs) and xs >= s.get("exit_xs_rank_below", 0.3):
+                continue      # timing weak but still a top-ranked stock: let the stop decide (less churn)
             out.append(dict(symbol=sym, reason="model_exit",
-                            why=f"Model confidence fell to {p:.0%} (exit below {s['p_exit']:.0%})."))
+                            why=f"Model confidence fell to {p:.0%} (exit below {s['p_exit']:.0%})"
+                                + (f" and it ranks in the bottom {xs:.0%} of peers." if not np.isnan(xs) else ".")))
     return out
 
 
@@ -67,7 +71,8 @@ def combined_score(fund: float | None, p: float, tech: float, weights: dict, ml:
 def entry_candidates(feats: pd.DataFrame, probs: pd.Series, regime: dict, universe,
                      held: set, cooldown: dict, date: str, cfg: dict,
                      research: dict | None = None, news_blocks: dict | None = None,
-                     news_boosts: dict | None = None, exp_ret: pd.Series | None = None) -> tuple[list[dict], list[dict]]:
+                     news_boosts: dict | None = None, exp_ret: pd.Series | None = None,
+                     xs_score: pd.Series | None = None) -> tuple[list[dict], list[dict]]:
     """Returns (ranked candidates, per-symbol signal rows for the dashboard).
 
     research=None  -> technical/ML only (backtests).
@@ -84,10 +89,10 @@ def entry_candidates(feats: pd.DataFrame, probs: pd.Series, regime: dict, univer
         f, p = feats.loc[sym], float(probs[sym])
         er = float(exp_ret[sym]) if exp_ret is not None and sym in exp_ret.index else None
         er_r = float(er_rank[sym]) if er_rank is not None and sym in er_rank.index else None
-        if er is not None and er < 0:
-            blockers_er = True
-        else:
-            blockers_er = False
+        if xs_score is not None and sym in xs_score.index:
+            er_r = float(xs_score[sym])            # selection score: 0 worst .. 1 best vs peers
+        min_xs = s.get("min_xs_rank", 0.0)
+        blockers_er = er_r is not None and er_r < min_xs
         inst = universe[sym]
         blockers = []
         fund, fund_note = None, ""
@@ -123,7 +128,7 @@ def entry_candidates(feats: pd.DataFrame, probs: pd.Series, regime: dict, univer
         if pd.isna(f["atr"]) or f["atr"] <= 0:
             blockers.append("no ATR")
         if blockers_er:
-            blockers.append(f"model expects a negative return ({er:+.1%})")
+            blockers.append(f"ranks in the bottom {min_xs:.0%} of peers for expected outperformance")
         tech = technical_score(f)
         mls = ml_score(p, er_r, cfg)
         combined = combined_score(fund, p, tech, rc["weights"], mls) if research is not None else None
@@ -137,7 +142,8 @@ def entry_candidates(feats: pd.DataFrame, probs: pd.Series, regime: dict, univer
         ev = p * m["label_target_atr"] - (1 - p) * stop_atr
         why = (f"{p:.0%} chance of +{m['label_target_atr']:.0f} ATR before -{m['label_stop_atr']:.0f} ATR "
                f"within ~{m['horizon_days']} days"
-               + (f"; expected {er:+.1%} in ~{m['horizon_days']} days" if er is not None else "")
+               + (f"; expected {er:+.1%} vs Nifty in ~{m['horizon_days']} days" if er is not None else "")
+               + (f"; selection rank top {1 - er_r:.0%}" if er_r is not None else "")
                + f"; {f['dist_sma200']:+.1%} vs 200-day average; "
                f"6-month momentum in top {1 - f['rank_ret_126']:.0%} of universe")
         if combined is not None:

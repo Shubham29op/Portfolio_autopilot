@@ -19,8 +19,10 @@ FEATURES = [
     "dd_252", "dist_high_63",
     # relative to market and sector
     "rel_strength_21", "rel_strength_63", "beta_63", "corr_63", "sector_rel_21", "sector_mom_63",
-    # cross-sectional ranks (today)
+    # cross-sectional ranks (today): the model learns "better than peers", not "market went up"
     "rank_ret_21", "rank_ret_126", "rank_mom_risk_adj", "rank_vol_21",
+    "rank_ret_63", "rank_dist_sma200", "rank_vol_63", "rank_rel_strength_63",
+    "rank_volume_ratio", "rank_rsi_14", "rank_dd_252", "rank_max_ret_21",
     # market state
     "mkt_ret_21", "mkt_dist_sma200", "mkt_vol_21", "mkt_vol_ratio", "breadth_sma200", "breadth_ret_21",
 ]
@@ -120,6 +122,9 @@ def build_features(bars: dict[str, pd.DataFrame], benchmark: str,
     panel["rank_ret_126"] = g["ret_126"].rank(pct=True)
     panel["rank_mom_risk_adj"] = g["mom_risk_adj"].rank(pct=True)
     panel["rank_vol_21"] = g["vol_21"].rank(pct=True)
+    for col in ("ret_63", "dist_sma200", "vol_63", "rel_strength_63", "volume_ratio", "rsi_14",
+                "dd_252", "max_ret_21"):
+        panel[f"rank_{col}"] = g[col].rank(pct=True)
     panel["breadth_sma200"] = g["dist_sma200"].transform(lambda x: (x > 0).mean())
     panel["breadth_ret_21"] = g["ret_21"].transform(lambda x: (x > 0).mean())
     return panel.replace([np.inf, -np.inf], np.nan)

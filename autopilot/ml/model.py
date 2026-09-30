@@ -34,7 +34,7 @@ def max_horizon(cfg: dict) -> int:
 
 def training_frame(features: pd.DataFrame, labels: pd.DataFrame, cfg: dict,
                    symbols: list[str] | None = None) -> pd.DataFrame:
-    cols = label_cols(cfg) + ["label", "fwd_ret"]
+    cols = label_cols(cfg) + ["label", "fwd_ret", "excess_ret", "label_xs"]
     df = features[FEATURES].join(labels[cols], how="inner")
     if symbols is not None:
         df = df[df.index.get_level_values("symbol").isin(symbols)]
@@ -42,19 +42,23 @@ def training_frame(features: pd.DataFrame, labels: pd.DataFrame, cfg: dict,
 
 
 class Ensemble:
-    """One classifier per horizon (averaged) + one expected-return regressor."""
+    """Timing: one triple-barrier classifier per horizon (averaged) -> prob (drives stops/sizing).
+    Selection: a top-30%-vs-peers classifier (prob_xs) + an excess-return-vs-Nifty regressor
+    (exp_ret). Selection models learn which stocks beat their peers, which is where a
+    cross-sectional edge usually lives; timing models mostly learn the market's mood."""
 
     def __init__(self, cfg: dict):
         self.cfg, self.params = cfg, cfg["model"]["params"]
         self.clfs: dict[str, HistGradientBoostingClassifier] = {}
+        self.xs: HistGradientBoostingClassifier | None = None
         self.reg: HistGradientBoostingRegressor | None = None
 
     def fit(self, tr: pd.DataFrame) -> "Ensemble":
         X = tr[FEATURES]
         for col in label_cols(self.cfg):
             self.clfs[col] = make_model(self.params).fit(X, tr[col].astype(int))
-        # winsorised forward return keeps outliers from dominating the regressor
-        y = tr["fwd_ret"].clip(tr["fwd_ret"].quantile(0.01), tr["fwd_ret"].quantile(0.99))
+        self.xs = make_model(self.params).fit(X, tr["label_xs"].astype(int))
+        y = tr["excess_ret"].clip(tr["excess_ret"].quantile(0.01), tr["excess_ret"].quantile(0.99))
         self.reg = HistGradientBoostingRegressor(random_state=42, early_stopping=False, **self.params).fit(X, y)
         return self
 
@@ -62,6 +66,7 @@ class Ensemble:
         Xf = X[FEATURES]
         probs = np.column_stack([c.predict_proba(Xf)[:, 1] for c in self.clfs.values()])
         return pd.DataFrame({"prob": probs.mean(axis=1), "prob_min": probs.min(axis=1),
+                             "prob_xs": self.xs.predict_proba(Xf)[:, 1],
                              "exp_ret": self.reg.predict(Xf)}, index=X.index)
 
 
@@ -111,7 +116,9 @@ def walk_forward(features: pd.DataFrame, labels: pd.DataFrame, cfg: dict,
         lab = train_df.reindex(te.index).dropna(subset=["label"])
         pp = p.reindex(lab.index)
         fm = _fold_metrics(lab["label"].to_numpy(), pp["prob"].to_numpy(),
-                           lab["fwd_ret"].to_numpy(), pp["exp_ret"].to_numpy())
+                           lab["excess_ret"].to_numpy(), pp["exp_ret"].to_numpy())
+        if lab["label_xs"].nunique() == 2:
+            fm["xs_auc"] = float(roc_auc_score(lab["label_xs"].astype(int), pp["prob_xs"]))
         fm.update(train_end=str(cutoff.date()), test_start=str(test_dates[0].date()),
                   test_end=str(test_dates[-1].date()), train_rows=int(len(tr)))
         folds.append(fm)
@@ -137,6 +144,7 @@ class ModelRegistry:
         joblib.dump(model, vdir / "model.joblib")
         aucs = [f["auc"] for f in (wf_folds or []) if f.get("auc") is not None]
         ics = [f["exp_ret_ic"] for f in (wf_folds or []) if f.get("exp_ret_ic") is not None]
+        xs_aucs = [f["xs_auc"] for f in (wf_folds or []) if f.get("xs_auc") is not None]
         meta = {
             "version": version,
             "features": FEATURES,
@@ -147,6 +155,7 @@ class ModelRegistry:
             "base_rate": float(df["label"].mean()),
             "walk_forward_auc_mean": float(np.mean(aucs)) if aucs else None,
             "walk_forward_ic_mean": float(np.mean(ics)) if ics else None,
+            "walk_forward_xs_auc_mean": float(np.mean(xs_aucs)) if xs_aucs else None,
             "walk_forward_folds": len(aucs),
             "params": m["params"],
             "label": {k: m[k] for k in ("horizon_days", "label_stop_atr", "label_target_atr")},

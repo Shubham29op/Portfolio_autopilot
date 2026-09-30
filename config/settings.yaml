@@ -28,16 +28,18 @@ schedule:
 model:
   horizon_days: 40           # main label horizon (~2 months) [TBD]
   horizons: [20, 40, 60]     # ensemble: one classifier per horizon, probabilities averaged
+  xs_top_frac: 0.3           # selection label: top 30% of peers by excess return vs Nifty
   label_stop_atr: 2.0        # triple-barrier stop for labels
   label_target_atr: 3.0      # triple-barrier target for labels
   retrain_every_days: 63     # walk-forward retrain cadence (~quarterly)
   min_train_rows: 3000
-  params:
-    max_iter: 300
-    learning_rate: 0.05
+  params:                    # more regularised than v1.1: weak signals overfit easily
+    max_iter: 400
+    learning_rate: 0.03
     max_leaf_nodes: 31
-    min_samples_leaf: 100
-    l2_regularization: 1.0
+    min_samples_leaf: 200
+    l2_regularization: 2.0
+    max_features: 0.6        # each split sees 60% of features (needs scikit-learn >= 1.4)
 
 regime:
   sma_days: 200
@@ -60,7 +62,9 @@ strategy:
   scale_out_fraction: 0.5
   lock_profit_trigger_atr: 2.0   # once +2 ATR, stop can't fall below entry + lock_profit_atr
   lock_profit_atr: 0.5
-  rank_exp_ret_weight: 0.3   # ML score = 70% probability + 30% expected-return rank
+  rank_exp_ret_weight: 0.5   # ML score = 50% timing probability + 50% selection rank vs peers
+  min_xs_rank: 0.3           # never buy a stock in the bottom 30% of peers on selection
+  exit_xs_rank_below: 0.3    # model exit only if timing is weak AND selection rank is bottom 30%
   trail_atr: 2.5             # trailing stop distance from highest close
   trail_activate_atr: 1.0    # trailing starts after +1 ATR gain
   time_stop_days: 40         # exit if no progress after this many days

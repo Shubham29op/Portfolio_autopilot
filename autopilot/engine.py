@@ -37,9 +37,15 @@ class Engine:
                   preds) -> None:
         """preds: DataFrame[prob, exp_ret] indexed by symbol (or a bare prob Series)."""
         L, B = self.ledger, self.broker
+        xs_score = None
         if isinstance(preds, pd.DataFrame):
             probs = preds["prob"] if "prob" in preds else pd.Series(dtype=float)
             exp_ret = preds["exp_ret"] if "exp_ret" in preds else None
+            tradable = [s for s in preds.index if s in self.universe.by_symbol and self.universe[s].tradable]
+            if exp_ret is not None and "prob_xs" in preds and tradable:
+                p = preds.loc[tradable]
+                xs_score = (p["exp_ret"].rank(pct=True) + p["prob_xs"].rank(pct=True)) / 2
+                xs_score = xs_score.rank(pct=True)
         else:
             probs, exp_ret = preds, None
         unprotected = B.end_day(closes)
@@ -122,7 +128,7 @@ class Engine:
 
         cap = self.cfg["risk"]["max_new_trades_per_day"]
         if mode == "running":
-            for d in exit_decisions(B.positions, feats, probs, date, self.cfg):
+            for d in exit_decisions(B.positions, feats, probs, date, self.cfg, xs_score):
                 if orders_today >= cap:
                     break
                 if d["symbol"] in protective_syms:
@@ -139,7 +145,7 @@ class Engine:
         L.set("news_blocks", blocks)
         L.set("news_boosts", boosts)
         cands, rows = entry_candidates(feats, probs, regime, self.universe, set(B.positions),
-                                       cooldown, date, self.cfg, research, blocks, boosts, exp_ret)
+                                       cooldown, date, self.cfg, research, blocks, boosts, exp_ret, xs_score)
         if mode == "running" and orders_today < cap:
             p_min = (self.cfg["research"]["p_enter_approved"] if self.use_research
                      else self.cfg["strategy"]["p_enter"])

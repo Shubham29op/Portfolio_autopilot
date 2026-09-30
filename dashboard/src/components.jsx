@@ -384,7 +384,8 @@ export function ModelCard({ summary: s }) {
       {r && (
         <p className="sub">
           {r.trades.round_trips} completed trades, {plainPct(r.trades.win_rate)} winners, {rupees(r.trades.total_charges)} in
-          charges, about {Math.round(r.trades.trades_per_year)} orders a year. Tax not included.
+          charges ({plainPct(r.trades.cost_drag_per_year, 1)} of capital a year), about{" "}
+          {Math.round(r.trades.trades_per_year)} orders a year, invested {plainPct(r.trades.avg_exposure)} of the time. Tax not included.
         </p>
       )}
       <dl className="model-facts">
@@ -394,8 +395,11 @@ export function ModelCard({ summary: s }) {
           {auc != null ? auc.toFixed(3) : "–"}
           {auc != null && <span className="cell-sub">{auc < 0.55 ? "Weak edge: 0.5 is a coin flip" : "Some edge over a coin flip (0.5)"}</span>}
         </dd>
+        {(r?.model?.xs_auc_mean ?? m?.walk_forward_xs_auc_mean) != null && (
+          <><dt>Beat-peers skill</dt><dd>{(r?.model?.xs_auc_mean ?? m?.walk_forward_xs_auc_mean).toFixed(3)}<span className="cell-sub">AUC for picking the top 30% vs peers; 0.55+ is a real edge</span></dd></>
+        )}
         {m?.walk_forward_ic_mean != null && (
-          <><dt>Return-rank skill</dt><dd>{m.walk_forward_ic_mean.toFixed(3)}<span className="cell-sub">Spearman IC of expected vs actual 40-day return; 0.05+ is useful</span></dd></>
+          <><dt>Return-rank skill</dt><dd>{m.walk_forward_ic_mean.toFixed(3)}<span className="cell-sub">Rank correlation of predicted vs actual 40-day return vs Nifty; 0.05+ is useful</span></dd></>
         )}
         {m?.train_end && (<><dt>Trained through</dt><dd>{m.train_end}</dd></>)}
         {s.regime && (<><dt>Market</dt><dd>{s.regime.risk_on ? "Risk-on" : "Risk-off"}<span className="cell-sub">{s.regime.why}</span></dd></>)}
