@@ -1,0 +1,16 @@
+# NSE equity DELIVERY charges on Zerodha. Rates change - verify against
+# https://zerodha.com/charges before going live. Tax is NOT modelled in v1.
+brokerage_pct: 0.0            # Rs 0 on delivery
+stt:                          # fraction of trade value
+  stock:        {buy: 0.001,  sell: 0.001}
+  equity_etf:   {buy: 0.0,    sell: 0.00001}   # equity-oriented ETF units: sell side only
+  gold_etf:     {buy: 0.0,    sell: 0.0}
+  silver_etf:   {buy: 0.0,    sell: 0.0}
+  debt_etf:     {buy: 0.0,    sell: 0.0}
+  liquid_etf:   {buy: 0.0,    sell: 0.0}
+exchange_txn_pct: 0.0000297   # NSE cash [TBD verify: sources show 0.00297%-0.00325%]
+sebi_per_crore: 10
+ipft_per_crore: 0.01
+stamp_buy_pct: 0.00015        # buy side only
+gst_pct: 0.18                 # on brokerage + exchange + SEBI + IPFT
+dp_per_scrip_sell: 15.34      # per scrip per day with a sell, incl. GST [TBD verify]

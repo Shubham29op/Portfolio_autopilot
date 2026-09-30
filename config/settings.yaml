@@ -1,0 +1,161 @@
+# Portfolio Autopilot - v1 (paper trading)
+# Every value marked [TBD] is a starting assumption to tune via backtest.
+
+mode: paper
+capital: 500000              # starting paper capital in INR [TBD]
+benchmark: NIFTYBEES         # used for regime + comparison
+cash_symbol: LIQUIDBEES      # idle cash proxy (not traded by the model in v1)
+
+data:
+  provider: yfinance         # yfinance | synthetic
+  history_start: "2012-01-01"
+  cache_dir: data/cache
+
+paths:
+  db: data/paper.db
+  models: data/models
+  reports: data/reports
+
+schedule:
+  timezone: Asia/Kolkata
+  market_open: "09:15"
+  market_close: "15:30"
+  execution_window: ["10:30", "14:30"]   # queued entries/exits only fill inside this
+  tick_minutes: 15                       # how often stops are checked intraday
+  eod_run: "16:15"                       # after close: features, model, decisions
+  holidays: ["2026-10-02"]               # [TBD] add the full NSE list; live loop also detects closed days
+
+model:
+  horizon_days: 40           # main label horizon (~2 months) [TBD]
+  horizons: [20, 40, 60]     # ensemble: one classifier per horizon, probabilities averaged
+  label_stop_atr: 2.0        # triple-barrier stop for labels
+  label_target_atr: 3.0      # triple-barrier target for labels
+  retrain_every_days: 63     # walk-forward retrain cadence (~quarterly)
+  min_train_rows: 3000
+  params:
+    max_iter: 300
+    learning_rate: 0.05
+    max_leaf_nodes: 31
+    min_samples_leaf: 100
+    l2_regularization: 1.0
+
+regime:
+  sma_days: 200
+  vol_lookback: 21
+  vol_high: 0.28             # benchmark annualised vol above this = cautious [TBD]
+  breadth_weak: 0.40         # share of universe above its 200-day average
+  breadth_strong: 0.60
+  tiers:                     # equity risk per tier (below the 200-day average = off)
+    "off":    {risk_mult: 0.0, extra_positions: 0}
+    cautious: {risk_mult: 0.5, extra_positions: -2}
+    normal:   {risk_mult: 1.0, extra_positions: 0}
+    strong:   {risk_mult: 1.25, extra_positions: 2}
+
+strategy:
+  p_enter: 0.55              # min model probability to enter [TBD]
+  p_exit: 0.40               # model exit below this (after min hold)
+  stop_atr_low_conf: 1.8     # stop distance at p = p_enter
+  stop_atr_high_conf: 2.5    # stop distance at very high p (more room)
+  target_atr: 3.0            # GTT OCO target leg: sells scale_out_fraction, rest trails
+  scale_out_fraction: 0.5
+  lock_profit_trigger_atr: 2.0   # once +2 ATR, stop can't fall below entry + lock_profit_atr
+  lock_profit_atr: 0.5
+  rank_exp_ret_weight: 0.3   # ML score = 70% probability + 30% expected-return rank
+  trail_atr: 2.5             # trailing stop distance from highest close
+  trail_activate_atr: 1.0    # trailing starts after +1 ATR gain
+  time_stop_days: 40         # exit if no progress after this many days
+  time_stop_min_gain_atr: 0.5
+  max_hold_days: 250         # ~1 year
+  min_hold_days: 21          # no discretionary exit before ~1 month (stops always active)
+  max_gap_pct: 0.03          # skip entry if price runs >3% above signal close
+  cooldown_days: 10          # no re-entry after exit
+
+risk:
+  max_positions: 10
+  risk_per_trade: 0.01       # base: 1% of equity lost if stop hits, scaled by conviction/regime/vol
+  conviction_mult: {min: 0.6, max: 1.6}   # multiplies risk by model conviction
+  market_vol_ref: 0.16       # typical Nifty vol; risk scales by ref/current (0.5x-1.25x)
+  max_risk_per_trade: 0.02   # hard cap after all multipliers
+  max_position_pct: 0.15
+  max_sector_pct: 0.30
+  min_position_value: 10000  # below this, DP charge eats the edge
+  max_new_trades_per_day: 4  # discretionary orders only; protective stops never capped
+  circuit_breaker_dd: 0.12   # hard: exit all + halt at 12% drawdown from peak [TBD]
+  auto_resume_days: null     # live: null = only you can resume. Backtest sets this (simulated you).
+  cash_buffer_pct: 0.01
+
+execution:
+  slippage_pct: 0.0005
+  stop_limit_buffer_pct: 0.005   # GTT stop leg limit = trigger * (1 - buffer)
+  unfilled_stop_action: exit_next_open
+
+cash:
+  idle_yield_annual: 0.06    # liquid ETF proxy on uninvested cash [TBD]
+
+research:                    # monthly fundamental gate (stocks only; ETFs skip it)
+  enabled: true
+  source: auto               # auto: Screener file in the inbox if present, else yfinance (free) | screener | yfinance
+  auto_monthly: true         # live loop runs research itself at the first EOD of each month
+  yfinance: {pause_s: 0.5, retries: 2}
+  inbox: data/fundamentals/inbox         # optional: drop Screener exports (.csv/.xlsx) here
+  snapshots: data/fundamentals/snapshots
+  apply_in_backtest: false   # no point-in-time fundamentals history yet -> backtest stays technical-only
+  min_quant_score: 55        # [TBD]
+  deep_dive_top_n: 30
+  sector_weight: 0.25        # quant score = 75% company + 25% sector
+  pillar_weights: {growth: 0.30, quality: 0.25, balance_sheet: 0.20, valuation: 0.15, ownership: 0.10}
+  financial_sectors: ["Financial Services"]   # D/E, interest cover, cash conversion don't apply
+  hard_filters:              # missing data never fails a filter; it's flagged instead
+    max_debt_to_equity: 1.5
+    min_interest_coverage: 3
+    max_pledged_pct: 10
+    min_cfo_to_pat: 0.5
+    min_profit_growth_3y: -10
+  on_llm_failure: numbers_only  # numbers_only (judge that stock on quant score) | reject
+  # LLM settings live in the top-level `llm:` block
+
+  fundamental_blend: {quant: 0.6, llm_conviction: 0.4}
+  # daily decision (stage 3)
+  weights: {fundamental: 0.4, ml: 0.4, technical: 0.2}
+  min_combined_score: 60     # [TBD]
+  p_enter_approved: 0.50     # ML floor for approved stocks (below the 0.55 used without research)
+  earnings_blackout_days: 5  # no new entries this many days before results
+  dropped_from_list: tighten # tighten | exit  (held stock no longer approved)
+  tighten_stop_atr: 1.0
+
+llm:
+  enabled: true
+  provider: gemini           # gemini (GEMINI_API_KEY) | anthropic (ANTHROPIC_API_KEY)
+  gemini:
+    model: gemini-3.8-flash
+    min_seconds_between_calls: 13   # free tier is ~5 requests/minute
+    max_retries: 3
+  anthropic:
+    model: claude-sonnet-5-5
+    max_searches: 8
+    max_tokens: 4000
+
+news:
+  enabled: true
+  max_age_hours: 24          # older headlines are logged but never acted on
+  llm_calls_per_day: 40      # budget for classifying ambiguous headlines (held/queued stocks only)
+  preopen_check: "08:45"
+  sources:
+    google_news: true
+    nse_announcements: true  # official filings; unofficial endpoint, may be blocked [TBD]
+  actions:
+    severe_confirmed: exit           # severity 5 + official filing
+    severe_unconfirmed_stop_atr: 0.5
+    moderate_stop_atr: 1.0           # severity 3-4
+    block_entry_days: 5
+    cancel_queued_buy_min_severity: 3
+    positive_boost_points: 5         # added to combined score (0-100); never creates a buy alone
+    positive_boost_days: 5
+
+tune:                        # `python -m autopilot.cli tune`: walk-forward grid search on cached predictions
+  start: "2019-01-01"
+  grid:
+    strategy.p_enter: [0.50, 0.55, 0.60]
+    strategy.trail_atr: [2.0, 3.0]
+    risk.risk_per_trade: [0.01, 0.015]
+  select_by: calmar          # calmar | cagr | sharpe_rf0

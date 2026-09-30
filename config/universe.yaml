@@ -1,0 +1,61 @@
+# Tradable universe. type drives charges (STT) and regime rules.
+# ETFs are defined here. Stocks: if config/ind_nifty100list.csv (NSE download) exists,
+# it REPLACES the stock list below, using NSE's Industry column as the sector.
+# Sectors use NSE industry names so ETFs, stocks and research share one vocabulary.
+# Stock list = large caps TODAY -> backtests carry survivorship bias.
+# [TBD] verify ETF tickers on NSE before going live; extend the list freely.
+instruments:
+  # --- ETFs ---
+  - {symbol: NIFTYBEES,  type: equity_etf, sector: index}
+  - {symbol: JUNIORBEES, type: equity_etf, sector: index}
+  - {symbol: MID150BEES, type: equity_etf, sector: index}
+  - {symbol: BANKBEES,   type: equity_etf, sector: Financial Services}
+  - {symbol: ITBEES,     type: equity_etf, sector: Information Technology}
+  - {symbol: PHARMABEES, type: equity_etf, sector: Healthcare}
+  - {symbol: GOLDBEES,   type: gold_etf,   sector: gold}
+  - {symbol: SILVERBEES, type: silver_etf, sector: silver}
+  - {symbol: GILT5YBEES, type: debt_etf,   sector: debt}
+  - {symbol: LIQUIDBEES, type: liquid_etf, sector: cash, tradable: false}
+  # --- Stocks (Nifty 100 subset) ---
+  - {symbol: RELIANCE,   type: stock, sector: Oil Gas & Consumable Fuels}
+  - {symbol: ONGC,       type: stock, sector: Oil Gas & Consumable Fuels}
+  - {symbol: NTPC,       type: stock, sector: Power}
+  - {symbol: POWERGRID,  type: stock, sector: Power}
+  - {symbol: COALINDIA,  type: stock, sector: Oil Gas & Consumable Fuels}
+  - {symbol: HDFCBANK,   type: stock, sector: Financial Services}
+  - {symbol: ICICIBANK,  type: stock, sector: Financial Services}
+  - {symbol: SBIN,       type: stock, sector: Financial Services}
+  - {symbol: KOTAKBANK,  type: stock, sector: Financial Services}
+  - {symbol: AXISBANK,   type: stock, sector: Financial Services}
+  - {symbol: BAJFINANCE, type: stock, sector: Financial Services}
+  - {symbol: TCS,        type: stock, sector: Information Technology}
+  - {symbol: INFY,       type: stock, sector: Information Technology}
+  - {symbol: HCLTECH,    type: stock, sector: Information Technology}
+  - {symbol: WIPRO,      type: stock, sector: Information Technology}
+  - {symbol: TECHM,      type: stock, sector: Information Technology}
+  - {symbol: BHARTIARTL, type: stock, sector: Telecommunication}
+  - {symbol: ITC,        type: stock, sector: Fast Moving Consumer Goods}
+  - {symbol: HINDUNILVR, type: stock, sector: Fast Moving Consumer Goods}
+  - {symbol: NESTLEIND,  type: stock, sector: Fast Moving Consumer Goods}
+  - {symbol: BRITANNIA,  type: stock, sector: Fast Moving Consumer Goods}
+  - {symbol: TATACONSUM, type: stock, sector: Fast Moving Consumer Goods}
+  - {symbol: LT,         type: stock, sector: Capital Goods}
+  - {symbol: ADANIPORTS, type: stock, sector: Services}
+  - {symbol: MARUTI,     type: stock, sector: Automobile and Auto Components}
+  - {symbol: M&M,        type: stock, sector: Automobile and Auto Components}
+  - {symbol: BAJAJ-AUTO, type: stock, sector: Automobile and Auto Components}
+  - {symbol: EICHERMOT,  type: stock, sector: Automobile and Auto Components}
+  - {symbol: HEROMOTOCO, type: stock, sector: Automobile and Auto Components}
+  - {symbol: SUNPHARMA,  type: stock, sector: Healthcare}
+  - {symbol: DRREDDY,    type: stock, sector: Healthcare}
+  - {symbol: CIPLA,      type: stock, sector: Healthcare}
+  - {symbol: DIVISLAB,   type: stock, sector: Healthcare}
+  - {symbol: APOLLOHOSP, type: stock, sector: Healthcare}
+  - {symbol: TITAN,      type: stock, sector: Consumer Durables}
+  - {symbol: ASIANPAINT, type: stock, sector: Consumer Durables}
+  - {symbol: TRENT,      type: stock, sector: Consumer Services}
+  - {symbol: ULTRACEMCO, type: stock, sector: Construction Materials}
+  - {symbol: GRASIM,     type: stock, sector: Construction Materials}
+  - {symbol: TATASTEEL,  type: stock, sector: Metals & Mining}
+  - {symbol: JSWSTEEL,   type: stock, sector: Metals & Mining}
+  - {symbol: HINDALCO,   type: stock, sector: Metals & Mining}
