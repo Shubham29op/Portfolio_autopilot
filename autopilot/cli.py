@@ -39,10 +39,22 @@ def main() -> None:
     cfg, universe = load_settings(overrides=overrides), Universe.load()
 
     if a.command == "fetch":
-        from autopilot.pipeline import load_bars
-        bars = load_bars(cfg, universe, refresh=True)
+        from autopilot.data.providers import make_provider, suspicious_moves
+        from autopilot.config import ROOT
+        prov = make_provider(cfg, ROOT)
+        # refresh=True re-downloads full history so split repairs apply to clean data
+        bars = prov.load(universe.symbols, cfg["data"]["history_start"], refresh=True) \
+            if hasattr(prov, "repairs") else prov.load(universe.symbols)
+        missing = [s for s in universe.symbols if s not in bars]
         for s, df in sorted(bars.items()):
-            print(f"{s:12s} {df.index.min().date()} -> {df.index.max().date()}  {len(df)} bars")
+            sus = suspicious_moves(df)
+            flag = f"  CHECK one-day moves >25% on {', '.join(sus[:3])}" if sus else ""
+            print(f"{s:12s} {df.index.min().date()} -> {df.index.max().date()}  {len(df)} bars{flag}")
+        for r in getattr(prov, "repairs", []):
+            print(f"REPAIRED {r['symbol']} {r['date']}: unadjusted split/bonus, factor {r['factor']} "
+                  f"(raw one-day move {r['one_day_move']:+.0%})")
+        if missing:
+            print("NO DATA:", ", ".join(missing))
     elif a.command == "train":
         from autopilot.live import LivePaper
         meta = LivePaper(cfg, universe).train()

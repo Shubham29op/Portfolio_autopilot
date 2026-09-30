@@ -91,6 +91,7 @@ def build_report(ledger: Ledger, folds: list[dict], cfg: dict) -> dict:
     sells = fills[fills["side"] == "sell"] if not fills.empty else fills
     aucs = [f["auc"] for f in folds if f.get("auc") is not None]
     ics = [f["exp_ret_ic"] for f in folds if f.get("exp_ret_ic") is not None]
+    xs_aucs = [f["xs_auc"] for f in folds if f.get("xs_auc") is not None]
     yearly = (eq["equity"].resample("YE").last() / eq["equity"].resample("YE").first() - 1)
     bench_yearly = (eq["benchmark"].resample("YE").last() / eq["benchmark"].resample("YE").first() - 1)
     trades = {
@@ -100,6 +101,9 @@ def build_report(ledger: Ledger, folds: list[dict], cfg: dict) -> dict:
         "total_charges": round(float(fills["charges_total"].sum()), 2) if not fills.empty else 0,
         "exit_reasons": sells["reason"].value_counts().to_dict() if len(sells) else {},
         "avg_exposure": round(float((eq["invested"] / eq["equity"]).mean()), 3),
+        "cost_drag_per_year": round(float(fills["charges_total"].sum() / eq["equity"].mean()
+                                          / max(1e-9, (eq.index[-1] - eq.index[0]).days / 365.25)), 4)
+        if not fills.empty else 0,
         "trades_per_year": round(len(fills) / max(1e-9, (eq.index[-1] - eq.index[0]).days / 365.25), 1),
     }
     return {
@@ -113,6 +117,7 @@ def build_report(ledger: Ledger, folds: list[dict], cfg: dict) -> dict:
         "model": {"folds": len(folds), "auc_mean": round(float(np.mean(aucs)), 4) if aucs else None,
                   "auc_min": round(float(np.min(aucs)), 4) if aucs else None,
                   "exp_ret_ic_mean": round(float(np.mean(ics)), 4) if ics else None,
+                  "xs_auc_mean": round(float(np.mean(xs_aucs)), 4) if xs_aucs else None,
                   "fold_detail": folds},
         "notes": ["Tax excluded (v1).", "Stock universe = today's large caps: survivorship bias.",
                   "Charges per config/charges.yaml; idle cash earns cash.idle_yield_annual."],

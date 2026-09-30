@@ -48,10 +48,22 @@ def triple_barrier(df: pd.DataFrame, atr: pd.Series, horizon: int,
 
 
 def build_labels(bars: dict[str, pd.DataFrame], features: pd.DataFrame, cfg: dict) -> pd.DataFrame:
-    """One triple-barrier label per horizon (label_h20, label_h40, ...) plus the main
-    horizon's forward return (fwd_ret) used to train the expected-return model."""
+    """Per (date, symbol):
+      label_h{H}  triple-barrier label per horizon (matches the trade's stop/target geometry)
+      label/fwd_ret/days  the main horizon's triple barrier
+      excess_ret  forward return (next open -> close after H days) minus Nifty's over the same window
+      label_xs    1 if excess_ret is in the top 30% of the universe that day (pure stock selection)
+    """
     m = cfg["model"]
-    horizons = sorted(set(m.get("horizons", [m["horizon_days"]])) | {m["horizon_days"]})
+    H = m["horizon_days"]
+    horizons = sorted(set(m.get("horizons", [H])) | {H})
+    bench = cfg["benchmark"]
+
+    def simple_fwd(df):
+        entry = df["open"].shift(-1)
+        return df["close"].shift(-H) / entry - 1
+
+    bench_fwd = simple_fwd(bars[bench]) if bench in bars else None
     out = {}
     for sym, df in bars.items():
         a = features.xs(sym, level="symbol")["atr"]
@@ -59,9 +71,14 @@ def build_labels(bars: dict[str, pd.DataFrame], features: pd.DataFrame, cfg: dic
         for h in horizons:
             tb = triple_barrier(df, a, h, m["label_stop_atr"], m["label_target_atr"])
             cols[f"label_h{h}"] = tb["label"]
-            if h == m["horizon_days"]:
+            if h == H:
                 cols["label"] = tb["label"]
                 cols["fwd_ret"] = tb["fwd_ret"]
                 cols["days"] = tb["days"]
+        fwd = simple_fwd(df)
+        cols["excess_ret"] = fwd - bench_fwd.reindex(df.index) if bench_fwd is not None else fwd
         out[sym] = pd.DataFrame(cols, index=df.index)
-    return pd.concat(out, names=["symbol", "date"]).swaplevel().sort_index()
+    lab = pd.concat(out, names=["symbol", "date"]).swaplevel().sort_index()
+    q = lab.groupby(level="date")["excess_ret"].rank(pct=True)
+    lab["label_xs"] = (q >= 1 - m.get("xs_top_frac", 0.3)).astype(float).where(lab["excess_ret"].notna())
+    return lab

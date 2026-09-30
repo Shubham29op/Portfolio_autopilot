@@ -37,6 +37,13 @@ Tests: `pytest -q`.
 If you must start the server manually each day: start it before 08:30 and leave it past 16:30.
 State is in SQLite, so a restart mid-day is safe; a missed EOD run is caught up the next evening.
 
+## Data quality
+
+`fetch` re-downloads full history, repairs splits/bonuses the free feed failed to adjust (a one-day
+move that persists and matches a standard ratio such as 1:10), prints every repair, and flags any
+other one-day move over 25% for you to check. A missed split shows up as a fake crash, which
+corrupts features, labels, stops and the benchmark, so always re-run `fetch` before `backtest`.
+
 ## Starting live paper trading
 
 Paper only: no real orders are possible in this version.
@@ -139,7 +146,7 @@ with the ML probability >= 50%, the trend confirmed, the market risk-on, and **n
 
 At most 4 discretionary orders a day. Protective exits (stops, circuit breaker) are never capped.
 
-## The brain (v1.2)
+## The brain (v1.3)
 
 Honest framing first: a target like 25% a year is above what most professionals sustain. The
 system below gives you the machinery serious quant desks use; whether it clears that bar is
@@ -153,8 +160,11 @@ decided by the walk-forward backtest and then by paper trading, not by the code.
    vs the stock's own sector, cross-sectional ranks, market trend/vol/breadth.
 2. **Labels** (`ml/labels.py`): triple barrier matching how it trades (+3 ATR before -2 ATR),
    at **three horizons** (20/40/60 days), plus the 40-day forward return.
-3. **Model** (`ml/model.py`): an **ensemble** of three gradient-boosted classifiers (one per horizon,
-   probabilities averaged) plus an **expected-return regressor**. Retrained quarterly with purged
+3. **Model** (`ml/model.py`): **timing** = three triple-barrier classifiers (20/40/60 days, averaged)
+   that drive stops and sizing; **selection** = a "top 30% of peers" classifier plus a regressor on
+   return **in excess of Nifty**. Selection is ranked against peers each day, so the model learns
+   which stocks beat others rather than whether the market rises. Heavier regularisation and
+   feature subsampling (weak signals overfit easily). Retrained quarterly with purged
    walk-forward; every backtest prediction is out-of-sample. Report shows AUC and the
    expected-return rank correlation (IC).
 4. **Regime tiers** (`regime.py`): off (below 200-day average), cautious (high vol or weak breadth:
