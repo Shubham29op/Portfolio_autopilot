@@ -40,7 +40,8 @@ def _metric_lines(metrics: dict) -> str:
     keep = ["price", "market_cap", "sales_growth_3y", "profit_growth_3y", "qtr_sales_yoy", "qtr_profit_yoy",
             "roce", "roe_3y_avg", "opm", "opm_last_year", "debt_to_equity", "interest_coverage",
             "cfo_to_pat", "pe", "pe_5y_median", "industry_pe", "promoter_holding", "promoter_change",
-            "pledged_pct", "fii_change", "dii_change"]
+            "pledged_pct", "fii_change", "dii_change",
+            "fc_rev_growth", "fc_eps_growth_1y", "fc_eps_growth_3y", "fc_fcf_yield", "fc_upside"]
     lines = []
     for k in keep:
         v = metrics.get(k)

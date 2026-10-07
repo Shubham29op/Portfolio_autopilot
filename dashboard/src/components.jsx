@@ -421,8 +421,10 @@ function Empty({ title, text }) {
 
 const PILLARS = [
   ["growth", "Growth"], ["quality", "Quality"], ["balance_sheet", "Balance sheet"],
-  ["valuation", "Valuation"], ["ownership", "Ownership"],
+  ["valuation", "Valuation"], ["ownership", "Ownership"], ["forecast", "Forecast"],
 ];
+
+const signedPct = (v) => (v == null ? "–" : `${v > 0 ? "+" : ""}${Math.round(v)}%`);
 
 export function Research({ data, source }) {
   const [open, setOpen] = useState(null);
@@ -458,14 +460,15 @@ export function Research({ data, source }) {
             <tr>
               <th>Stock</th>
               <th className="num">Score</th>
-              <th className="pillars-col">Growth, quality, balance sheet, valuation, ownership</th>
+              <th className="pillars-col">Growth, quality, balance sheet, valuation, ownership, forecast</th>
+              <th className="num">Next year</th>
               <th>Verdict</th>
               <th className="num">Results</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
-              <ResearchRow key={r.symbol} r={r} open={open === r.symbol} onToggle={() => setOpen(open === r.symbol ? null : r.symbol)} />
+              <ResearchRow key={r.symbol} r={r} fc={data.forecast?.[r.symbol]} open={open === r.symbol} onToggle={() => setOpen(open === r.symbol ? null : r.symbol)} />
             ))}
           </tbody>
         </table>
@@ -479,7 +482,7 @@ export function Research({ data, source }) {
   );
 }
 
-function ResearchRow({ r, open, onToggle }) {
+function ResearchRow({ r, fc, open, onToggle }) {
   const p = r.pillars_json || {};
   return (
     <>
@@ -503,6 +506,16 @@ function ResearchRow({ r, open, onToggle }) {
             ))}
           </div>
         </td>
+        <td className="num">
+          {fc ? (
+            <>
+              {signedPct(fc.fc_eps_growth_1y)} profit
+              <span className="cell-sub">{signedPct(fc.fc_upside)} to fair value</span>
+            </>
+          ) : (
+            <span className="cell-sub">no forecast</span>
+          )}
+        </td>
         <td>
           {r.approved ? (r.verdict ? `Approved (${r.conviction?.toFixed(0)})` : "Approved") : r.reason}
         </td>
@@ -510,8 +523,20 @@ function ResearchRow({ r, open, onToggle }) {
       </tr>
       {open && (
         <tr className="research-detail">
-          <td colSpan={5}>
+          <td colSpan={6}>
             {r.thesis && <p><strong>Thesis.</strong> {r.thesis}</p>}
+            {fc && (
+              <p>
+                <strong>Forecast.</strong>{" "}
+                {fc.fc_method === "book_value"
+                  ? `Book value growing ${signedPct(fc.fc_rev_growth)} a year (return on equity times retained profit)`
+                  : `Revenue ${signedPct(fc.fc_rev_growth)} a year from its own trend, costs and capex at their usual share of revenue`}
+                ; profit {signedPct(fc.fc_eps_growth_1y)} next year, {signedPct(fc.fc_eps_growth_3y)} a year over three
+                {fc.fc_fcf_yield != null ? `; free cash flow ${fc.fc_fcf_yield.toFixed(1)}% of market value` : ""}
+                {fc.fc_fair_value != null ? `; fair value ₹${Math.round(fc.fc_fair_value).toLocaleString("en-IN")} (${signedPct(fc.fc_upside)}) at its own usual ${fc.fc_method === "book_value" ? "price/book" : "EV/EBITDA"}` : ""}
+                . Confidence {Math.round((fc.fc_confidence || 0) * 100)}%: {fc.fc_confidence >= 0.8 ? "five years of statements" : "limited statement history"}.
+              </p>
+            )}
             {r.red_flags?.length > 0 && <p className="loss"><strong>Red flags.</strong> {r.red_flags.join("; ")}</p>}
             {r.key_risks?.length > 0 && <p><strong>Risks.</strong> {r.key_risks.join("; ")}</p>}
             {r.filters_failed?.length > 0 && <p><strong>Failed filters.</strong> {r.filters_failed.join("; ")}</p>}
